@@ -1,23 +1,26 @@
 # prometheus-http-exporter
 
-Turn HTTP responses into prometheus metrics.
+Turn HTTP resources into Prometheus metrics.
+
+> [!IMPORTANT]  
+> Excessive amounts of requests can lead to your being banned,
+> and is generally regarded as a dick move. **Use it responsibly.**
 
 ## Concepts
 
-The exporter exposes a configurable port, from which prometheus can retrieve the final metrics.
+The configuration file contains a list of **targets**.
+Each target represents one URL (one foreign endpoint) that the exporter will scrape.
+
+Each target contains a set of **rules**, which transform the URL's response into metrics.
+
+Finally, the metrics are exposed on a configurable port, to be scraped by Prometheus.
 See [#Prometheus Configuration](#Prometheus-Configuration) for how to configure Prometheus.
 
-The configuration file contains a list of **targets**.
-Each target represents on URL (one foreign endpoint) that the exporter will scrape.
-
-Each target contains a set of **rules**, which transform the returned data into metrics.
-
 > [!NOTE]
-> Unlike most exporters, this project does not generate fresh metrics when scraped.
+> Unlike most exporters, this project does not generate fresh metrics when scraped by Prometheus.
 > Instead, each target keeps its own schedule, as defined in the config.
 >
-> This is to support both high-frequency scraping of internal and low-frequency scraping of external APIs,
-> in the same exporter.
+> This is to support both low- and high-frequency metrics in the same exporter.
 
 ## Configuration
 
@@ -27,17 +30,15 @@ address: 0.0.0.0:8271
 # Scrapes each target while starting up. Useful to test your config, don't use in production.
 scrape_on_startup: true
 targets:
-  - name: ISRO Spacecraft Count
-    # original url: https://isro.vercel.app/api/spacecrafts
-    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/isro-spacecrafts.json
-    cron: every day # uses
+  - name: crates.io summary
+    url: https://crates.io/api/v1/summary
+    cron: every 15 minutes
+    extractor: jq # default, may be omitted
     rules:
-      - name: isro_spacecraft_count
-        extract: ".spacecrafts | length"
-        metric_type: gauge
+      - name: crates_io_crates
+        extract: ".num_crates"
 ```
 See `config.yml` for a full example.
-
 
 ## Prometheus Configuration
 
@@ -55,7 +56,7 @@ scrape_configs:
 **`honor_timestamps` is true by default and may be omitted.** It is not recommended to set it to false;
 In that case Prometheus will give the metrics a fresh timestamp on every scrape,
 even if the exporter hasn't updated some metric in hours.
-It makes for better-looking dashboards, but at the cost of polluting prometheus with misleading data.
+It makes for better-looking dashboards, but at the cost of polluting Prometheus with misleading data.
 
 `scrape_interval` may be set as low as possible, at least as low as the shortest scheduled target.
 

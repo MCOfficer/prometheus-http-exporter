@@ -1,0 +1,66 @@
+# The Address to bind to. Defaults to 0.0.0.0:3000
+address: 0.0.0.0:8271
+# Scrapes each target while starting up. Useful to test your config, don't use in production.
+scrape_on_startup: true
+
+targets:
+
+  - name: crates.io summary
+    # original url: https://crates.io/api/v1/summary
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/crates-io-summary.json
+    cron: every day
+    extractor: jq # default, may be omitted
+    rules:
+      - name: crates_io_downloads
+        extract: ".num_downloads"
+      - name: crates_io_crates
+        extract: ".num_crates"
+
+  - name: ISRO spacecraft sount
+    # original url: https://isro.vercel.app/api/spacecrafts
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/isro-spacecrafts.json
+    cron: every day
+    rules:
+      - name: isro_spacecraft_count
+        extract: ".spacecrafts | length"
+
+  - name: Open Notify astronauts
+    # original url: http://api.open-notify.org/astros.json
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/open-notify-astros.json
+    cron: every day
+    rules:
+      - name: open_notify_people_in_space
+        extract: .number
+      - name: open_notify_station_population
+        extract: >
+          .people
+          | map({craft:.craft})
+          | group_by(.craft)
+          | map({(.[0].craft): length})
+          | add
+
+  - name: Carbon Intensity GB
+    # original url: https://api.carbonintensity.org.uk/generation
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/carbon-intensity.json
+    cron: every 30 minutes
+    rules:
+      - name: carbon_intensity_generationmix
+        extract: '.data.generationmix | map( {(.fuel): .perc} ) | add'
+
+  - name: Is it Sunny in Philadelphia?
+    # original url: https://api.open-meteo.com/v1/forecast?latitude=39.9524&longitude=-75.1636&current=cloud_cover&forecast_days=1
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/open-meteo-philadelphia-clouds.json
+    cron: every 15 minutes
+    rules:
+      - name: open_meteo_philadelphia_cloud_cover
+        extract: .current.cloud_cover
+
+  - name: URLTeam status
+    # original url: https://tracker.archiveteam.org:1338/
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/urlteam-status.html
+    cron: every 60 minutes
+    extractor: regex
+    rules:
+      - name: urlteam_status_urls
+        extract: '(?<scanned>\d+)</strong>\s+URLs scanned.*?(?<saved>\d+)</strong>\s+saved'
+        metric_type: gauge
