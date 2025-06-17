@@ -106,8 +106,8 @@ async fn main() {
     {
         let schema = schemars::schema_for!(Config);
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .with_file_name("config.schema.json");
-        std::fs::write(path, serde_json::to_string_pretty(&schema).unwrap());
+            .as_path().join("config.schema.json");
+        std::fs::write(path, serde_json::to_string_pretty(&schema).unwrap()).unwrap();
         return;
     }
 
