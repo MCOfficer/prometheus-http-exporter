@@ -6,8 +6,10 @@ use reqwest::Client;
 #[cfg(feature = "generate-schema")]
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::cmp::min;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -21,12 +23,15 @@ static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
 #[derive(Default)]
 struct Metrics {
-    gauges: HashMap<String, Metric>,
+    gauges: HashSet<Metric>,
 }
 
+#[derive(Default)]
 struct Metric {
+    name: String,
     value: f64,
     timestamp: Option<u128>,
+    labels: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -206,12 +211,19 @@ async fn serve_metrics() -> impl axum::response::IntoResponse {
         .await
         .gauges
         .iter()
-        .map(|(name, Metric { value, timestamp })| {
-            format!(
-                "# TYPE gauge\n{name} {value} {}",
-                timestamp.unwrap_or_default()
-            )
-        })
+        .map(
+            |Metric {
+                 name,
+                 value,
+                 timestamp,
+                 labels,
+             }| {
+                format!(
+                    "# TYPE gauge\n{name} {value} {}",
+                    timestamp.unwrap_or_default()
+                )
+            },
+        )
         .collect();
     parts.sort_unstable();
     let body = parts.join("\n\n");
@@ -272,8 +284,9 @@ impl Target {
     }
 
     async fn extract(&self, text: String) -> Result<()> {
+        debug!("Extracting from response for {}", self.name);
         for rule in &self.rules {
-            let mut to_save = HashMap::new();
+            debug!("Processing rule {}", &rule.name);
             let to_rule_name = |name: &str| {
                 format!(
                     "{}_{}",
@@ -294,14 +307,27 @@ impl Target {
                             jq::JsonFilterError::Execute(e) => anyhow!("JQ Error: {}", e),
                             _ => anyhow!("JQ Error: {:#?}", e),
                         })?;
+
                     if let Some(obj) = value.as_object() {
-                        for (name, value) in obj {
-                            if value.is_number() {
-                                to_save.insert(to_rule_name(name), value.to_string());
+                        for (key, value) in obj {
+                            if let Some(num) = value.as_f64() {
+                                Metric::new(&rule.name, num)
+                                    .with_label("key", key)
+                                    .save()
+                                    .await;
                             }
                         }
-                    } else if value.is_number() {
-                        to_save.insert(rule.name.clone(), value.to_string());
+                    } else if let Some(arr) = value.as_array() {
+                        for obj in arr {
+                            if let Some(value) = obj.get("value") {
+                                if let Some(num) = value.as_f64() {
+                                    Metric::new(&rule.name, num).save().await;
+                                }
+                            }
+                        }
+                    } else if let Some(num) = value.as_f64() {
+                        // for numbers, as_f64 is always Some
+                        Metric::new(&rule.name, num).save().await;
                     }
                 }
 
@@ -312,37 +338,82 @@ impl Target {
                         .captures(&text)
                         .with_context(|| "Regex didn't match anything")?;
                     if names.is_empty() {
-                        let group = captures.iter().flatten().nth(1).unwrap();
-                        to_save.insert(rule.name.clone(), group.as_str().into());
-                    } else {
-                        for name in names {
-                            if let Some(group) = captures.name(name) {
-                                to_save.insert(to_rule_name(name), group.as_str().into());
-                            }
+                        // If there are no named groups, use the first group. Failing that, use the entire match
+                        let group = captures
+                            .iter()
+                            .flatten()
+                            .nth(min(1, captures.len() - 1))
+                            .unwrap();
+                        if let Ok(num) = group.as_str().parse::<f64>() {
+                            Metric::new(&rule.name, num).save().await;
+                        }
+                    } else if let Some(group) = captures.name("value") {
+                        if let Ok(num) = group.as_str().parse::<f64>() {
+                            let metric = Metric::new(&rule.name, num);
+                            names
+                                .iter()
+                                .filter_map(|name| captures.name(name).map(|m| (name, m.as_str())))
+                                .fold(metric, |m, (name, matched)| m.with_label(*name, matched))
+                                .save()
+                                .await;
                         }
                     }
-                }
-            };
-
-            for (name, value) in &to_save {
-                if let Ok(num) = value.parse::<f64>() {
-                    self.save_metric(rule, name.to_lowercase(), num).await?;
-                } else {
-                    warn!("Dropping non-numeric value: {name} {value}");
                 }
             }
         }
         Ok(())
     }
+}
 
-    async fn save_metric(&self, _rule: &Rule, name: String, value: f64) -> Result<()> {
-        let map = &mut METRICS.lock().await.gauges;
-        if let Some(m) = map.get_mut(&name) {
-            m.value = value;
-        } else {
-            let timestamp = Some(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis());
-            map.insert(name, Metric { value, timestamp });
+impl Metric {
+    fn new<N, V>(name: N, value: V) -> Self
+    where
+        N: Into<String>,
+        V: Into<f64>,
+    {
+        let timestamp = Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time before UNIX_EPOCH??")
+                .as_millis(),
+        );
+        Self {
+            name: name.into(),
+            value: value.into(),
+            timestamp,
+            labels: Default::default(),
         }
-        Ok(())
+    }
+
+    fn with_label<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        // TODO: escaping etc
+        self.labels.insert(key.into(), value.into());
+        self
+    }
+
+    async fn save(self) {
+        METRICS.lock().await.gauges.replace(self);
     }
 }
+
+impl Hash for Metric {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.name.as_bytes());
+        for (k, v) in &self.labels {
+            state.write(k.as_bytes());
+            state.write(v.as_bytes());
+        }
+    }
+}
+
+impl PartialEq for Metric {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.labels == other.labels
+    }
+}
+
+impl Eq for Metric {}
