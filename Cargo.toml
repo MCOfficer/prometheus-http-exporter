@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 description = "Configurable exporter for HTTP-based prometheus metrics"
 repository = "https://github.com/MCOfficer/prometheus-http-exporter"
+authors = ["MCOfficer"]
+license = "MIT"
+keywords = ["prometheus", "prometheus-exporter", "metrics"]
+categories = ["web-programming::http-server", "web-programming::http-client"]
 
 [dependencies]
 anyhow = "1.0"
@@ -11,12 +15,12 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 convert_case = "0.8"
 regex = "1"
 jq = "0.1.0"
-reqwest = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls", "charset", "gzip"] }
 schemars = { version = "1.0.0-rc.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 serde_yml = "0.0.12"
-tokio = { version = "1", features = ["full"] } # TODO: slim
+tokio = { version = "1", features = ["rt", "rt-multi-thread"], default-features = false }
 tokio-cron-scheduler = { version = "0.14", features = ["english", "signal"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
