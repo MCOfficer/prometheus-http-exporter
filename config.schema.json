@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "type": "object",
+  "properties": {
+    "address": {
+      "description": "The address to bind to.",
+      "type": "string",
+      "default": "0.0.0.0:3000"
+    },
+    "scrape_on_startup": {
+      "description": "Scrapes each target while starting up. Useful to test your config, don't use in production.",
+      "type": "boolean",
+      "default": false
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Target"
+      }
+    }
+  },
+  "required": [
+    "targets"
+  ],
+  "$defs": {
+    "Extractor": {
+      "description": "Which engine shall be used to process the response.",
+      "type": "string",
+      "enum": [
+        "jq",
+        "regex"
+      ]
+    },
+    "Rule": {
+      "description": "How to process to fetched data into metrics.",
+      "type": "object",
+      "properties": {
+        "extract": {
+          "description": "Instructions for the selected extractor, f.e. a jq query or regex pattern.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The rule's name, and that of any metrics generated. Should be snake_case to conform with Prometheus specs.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "extract"
+      ]
+    },
+    "Target": {
+      "type": "object",
+      "properties": {
+        "cron": {
+          "description": "When the job should run. Supported formats: [english-to-cron](https://github.com/kaplanelad/english-to-cron#full-list-of-supported-english-patterns), [croner](https://github.com/Hexagon/croner-rust#pattern)",
+          "type": "string"
+        },
+        "extractor": {
+          "$ref": "#/$defs/Extractor"
+        },
+        "headers": {
+          "description": "Additional headers. User-Agent is set by default.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "name": {
+          "description": "The target's name. Must be unique.",
+          "type": "string"
+        },
+        "rules": {
+          "description": "A set of rules",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Rule"
+          }
+        },
+        "url": {
+          "description": "The URL that should be fetched.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "cron",
+        "rules"
+      ]
+    }
+  }
+}
