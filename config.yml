@@ -2,6 +2,8 @@
 address: 0.0.0.0:8271
 # Scrapes each target while starting up. Useful to test your config, don't use in production.
 scrape_on_startup: true
+# Log level, "info" by default
+log_level: debug
 
 targets:
 

@@ -32,6 +32,9 @@ struct Metric {
 #[derive(Deserialize)]
 #[cfg_attr(feature = "generate-schema", derive(JsonSchema))]
 struct Config {
+    /// How verbose logging should be
+    #[serde(default = "default_log_level")]
+    log_level: String,
     /// The address to bind to.
     #[serde(default = "default_address")]
     address: String,
@@ -41,6 +44,9 @@ struct Config {
     targets: Vec<Target>,
 }
 
+fn default_log_level() -> String {
+    "info".into()
+}
 fn default_address() -> String {
     "0.0.0.0:3000".into()
 }
@@ -106,15 +112,11 @@ async fn main() {
     {
         let schema = schemars::schema_for!(Config);
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .as_path().join("config.schema.json");
+            .as_path()
+            .join("config.schema.json");
         std::fs::write(path, serde_json::to_string_pretty(&schema).unwrap()).unwrap();
         return;
     }
-
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::TRACE)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     let config_path = std::env::args()
         .nth(1)
@@ -126,6 +128,14 @@ async fn main() {
     let mut config: Config = serde_yml::from_reader(config_file)
         .context("Failed to Deserialize config")
         .unwrap();
+
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(
+            Level::from_str(&config.log_level)
+                .unwrap_or_else(|_| panic!("Invalid log level '{}'", config.log_level)),
+        )
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     let scheduler = JobScheduler::new()
         .await

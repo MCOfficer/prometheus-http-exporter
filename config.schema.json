@@ -8,6 +8,11 @@
       "type": "string",
       "default": "0.0.0.0:3000"
     },
+    "log_level": {
+      "description": "How verbose logging should be",
+      "type": "string",
+      "default": "info"
+    },
     "scrape_on_startup": {
       "description": "Scrapes each target while starting up. Useful to test your config, don't use in production.",
       "type": "boolean",
