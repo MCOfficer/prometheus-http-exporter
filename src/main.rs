@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context};
 use anyhow::{Result};
-use convert_case::{Casing};
 use regex::Regex;
 use reqwest::Client;
 #[cfg(feature = "generate-schema")]
