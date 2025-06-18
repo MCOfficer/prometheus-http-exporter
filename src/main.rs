@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context};
-use anyhow::{bail, Result};
-use convert_case::{Case, Casing};
+use anyhow::{Result};
+use convert_case::{Casing};
 use regex::Regex;
 use reqwest::Client;
 #[cfg(feature = "generate-schema")]
@@ -15,8 +15,7 @@ use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{debug, error, info, instrument, warn, Level};
-use tracing::field::debug;
+use tracing::{debug, error, info,  Level};
 use tracing_subscriber::FmtSubscriber;
 
 static METRICS: LazyLock<Mutex<Metrics>> = LazyLock::new(|| Mutex::new(Metrics::default()));
