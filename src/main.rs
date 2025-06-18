@@ -1,5 +1,5 @@
-use anyhow::Result;
 use anyhow::{anyhow, Context};
+use anyhow::{bail, Result};
 use convert_case::{Case, Casing};
 use regex::Regex;
 use reqwest::Client;
@@ -15,7 +15,8 @@ use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, error, info, instrument, warn, Level};
+use tracing::field::debug;
 use tracing_subscriber::FmtSubscriber;
 
 static METRICS: LazyLock<Mutex<Metrics>> = LazyLock::new(|| Mutex::new(Metrics::default()));
@@ -56,7 +57,7 @@ fn default_address() -> String {
     "0.0.0.0:3000".into()
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "generate-schema", derive(JsonSchema))]
 struct Target {
     /// The target's name. Must be unique.
@@ -75,7 +76,7 @@ struct Target {
 }
 
 /// Which engine shall be used to process the response.
-#[derive(Deserialize, Clone, Default)]
+#[derive(Deserialize, Clone, Default, Debug)]
 #[cfg_attr(feature = "generate-schema", derive(JsonSchema))]
 #[serde(rename_all = "lowercase")]
 enum Extractor {
@@ -85,7 +86,7 @@ enum Extractor {
 }
 
 /// How to process to fetched data into metrics.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "generate-schema", derive(JsonSchema))]
 struct Rule {
     /// The rule's name, and that of any metrics generated. Should be snake_case to conform with Prometheus specs.
@@ -100,6 +101,14 @@ struct Rule {
 struct ExtractorStorage {
     jq_filter: Option<jq::JsonFilter>,
     regex: Option<Regex>,
+}
+impl std::fmt::Debug for ExtractorStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtractorStorage")
+            .field("regex", &self.regex)
+            .field("jq_filter", &"(not impl Debug)")
+            .finish_non_exhaustive()
+    }
 }
 
 /// The type of prometheus metric.
@@ -158,7 +167,7 @@ async fn main() {
     if config.scrape_on_startup {
         info!("Initial Scraping of {} targets", config.targets.len());
         for target in &config.targets {
-            info!("Scraping {}...", target.name);
+            info!(name=target.name, "Scraping");
             let before = METRICS.lock().await.gauges.len();
             try_scrape_target(target).await.unwrap();
             let total = METRICS.lock().await.gauges.len() - before;
@@ -180,8 +189,8 @@ async fn main() {
                 }
             })
         })
-        .with_context(|| "creating job for target")
-        .unwrap();
+            .with_context(|| "creating job for target")
+            .unwrap();
         scheduler
             .add(job)
             .await
@@ -248,6 +257,7 @@ async fn try_scrape_target(target: &Target) -> Result<()> {
         builder = builder.header(k, v)
     }
     let request = builder.build().with_context(|| "building request")?;
+    debug!(target=target.name, url=request.url().as_str(), "Fetching");
     let response = CLIENT
         .execute(request)
         .await
@@ -282,21 +292,12 @@ impl Target {
         }
         Ok(())
     }
-
     async fn extract(&self, text: String) -> Result<()> {
-        debug!("Extracting from response for {}", self.name);
+        debug!(target = self.name, "Extracting from response");
         for rule in &self.rules {
-            debug!("Processing rule {}", &rule.name);
-            let to_rule_name = |name: &str| {
-                format!(
-                    "{}_{}",
-                    rule.name,
-                    name.to_case(Case::Snake).to_ascii_lowercase()
-                )
-            };
-
             match self.extractor {
                 Extractor::Jq => {
+                    debug!(target = self.name, rule = rule.name, "Processing with jq");
                     let value = rule
                         .extractor_storage
                         .jq_filter
@@ -309,6 +310,11 @@ impl Target {
                         })?;
 
                     if let Some(obj) = value.as_object() {
+                        debug!(
+                            target = self.name,
+                            rule = rule.name,
+                            "jq produced an object, treating it as multiple metrics"
+                        );
                         for (key, value) in obj {
                             if let Some(num) = value.as_f64() {
                                 Metric::new(&rule.name, num)
@@ -318,6 +324,11 @@ impl Target {
                             }
                         }
                     } else if let Some(arr) = value.as_array() {
+                        debug!(
+                            target = self.name,
+                            rule = rule.name,
+                            "jq produced an array, treating it as multiple metrics"
+                        );
                         for obj in arr {
                             if let Some(value) = obj.get("value") {
                                 if let Some(num) = value.as_f64() {
@@ -326,28 +337,25 @@ impl Target {
                             }
                         }
                     } else if let Some(num) = value.as_f64() {
+                        debug!(target = self.name, rule = rule.name, "jq produced a number");
                         // for numbers, as_f64 is always Some
                         Metric::new(&rule.name, num).save().await;
                     }
                 }
 
                 Extractor::Regex => {
+                    debug!(
+                        target = self.name,
+                        rule = rule.name,
+                        "Processing with regex"
+                    );
                     let regex = rule.extractor_storage.regex.as_ref().unwrap();
                     let names: Vec<_> = regex.capture_names().flatten().collect();
                     let captures = regex
                         .captures(&text)
                         .with_context(|| "Regex didn't match anything")?;
-                    if names.is_empty() {
-                        // If there are no named groups, use the first group. Failing that, use the entire match
-                        let group = captures
-                            .iter()
-                            .flatten()
-                            .nth(min(1, captures.len() - 1))
-                            .unwrap();
-                        if let Ok(num) = group.as_str().parse::<f64>() {
-                            Metric::new(&rule.name, num).save().await;
-                        }
-                    } else if let Some(group) = captures.name("value") {
+                    if names.contains(&"value") {
+                        let group = captures.name("value").with_context(|| "Named group 'value' exists, but didn't match anything?")?;
                         if let Ok(num) = group.as_str().parse::<f64>() {
                             let metric = Metric::new(&rule.name, num);
                             names
@@ -357,6 +365,18 @@ impl Target {
                                 .save()
                                 .await;
                         }
+                    }
+                    else {
+                        // There are no (relevant) named groups, so use the first one. Failing that, use the entire match
+                        let num = captures
+                            .iter()
+                            .flatten()
+                            .nth(min(1, captures.len() - 1))
+                            .unwrap()
+                            .as_str()
+                            .parse::<f64>()
+                            .with_context(|| "Regex matched, but the result could not be parsed as f64")?;
+                        Metric::new(&rule.name, num).save().await;
                     }
                 }
             }
@@ -396,6 +416,12 @@ impl Metric {
     }
 
     async fn save(self) {
+        debug!(
+            name = self.name,
+            value = self.value,
+            labels = self.labels.len(),
+            "Saving new metric"
+        );
         METRICS.lock().await.gauges.replace(self);
     }
 }
