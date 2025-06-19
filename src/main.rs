@@ -1,5 +1,5 @@
+use anyhow::Result;
 use anyhow::{anyhow, Context};
-use anyhow::{Result};
 use regex::Regex;
 use reqwest::Client;
 #[cfg(feature = "generate-schema")]
@@ -8,13 +8,12 @@ use serde::Deserialize;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::hash::{Hash, Hasher};
 use std::str::FromStr;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{debug, error, info,  Level};
+use tracing::{debug, error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 static METRICS: LazyLock<Mutex<Metrics>> = LazyLock::new(|| Mutex::new(Metrics::default()));
@@ -25,12 +24,13 @@ struct Metrics {
     gauges: HashSet<Metric>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 struct Metric {
     name: String,
     value: f64,
     timestamp: Option<u128>,
     labels: HashMap<String, String>,
+    rendered: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -45,7 +45,7 @@ struct Config {
     /// Scrapes each target while starting up. Useful to test your config, don't use in production.
     #[serde(default)]
     scrape_on_startup: bool,
-    targets: Vec<Target>,
+    targets: Arc<Vec<Target>>,
 }
 
 fn default_log_level() -> String {
@@ -55,10 +55,10 @@ fn default_address() -> String {
     "0.0.0.0:3000".into()
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Debug)]
 #[cfg_attr(feature = "generate-schema", derive(JsonSchema))]
 struct Target {
-    /// The target's name. Must be unique.
+    /// The target's name. Must be unique, must not contain newlines.
     name: String,
     /// The URL that should be fetched.
     url: String,
@@ -84,7 +84,7 @@ enum Extractor {
 }
 
 /// How to process to fetched data into metrics.
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Debug)]
 #[cfg_attr(feature = "generate-schema", derive(JsonSchema))]
 struct Rule {
     /// The rule's name, and that of any metrics generated. Should be snake_case to conform with Prometheus specs.
@@ -92,10 +92,12 @@ struct Rule {
     /// Instructions for the selected extractor, f.e. a jq query or regex pattern.
     extract: String,
     #[serde(skip)]
-    extractor_storage: ExtractorStorage,
+    extractor_storage: Mutex<ExtractorStorage>,
+    #[serde(skip)]
+    results: Mutex<Vec<Metric>>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct ExtractorStorage {
     jq_filter: Option<jq::JsonFilter>,
     regex: Option<Regex>,
@@ -137,7 +139,7 @@ async fn main() {
     let config_file = File::open(config_path)
         .context("Failed to open config file")
         .unwrap();
-    let mut config: Config = serde_yml::from_reader(config_file)
+    let config: Config = serde_yml::from_reader(config_file)
         .context("Failed to Deserialize config")
         .unwrap();
 
@@ -153,8 +155,9 @@ async fn main() {
         .await
         .with_context(|| "creating job scheduler")
         .unwrap();
-    for target in &mut config.targets {
-        target.setup().unwrap();
+
+    for target in config.targets.iter() {
+        target.setup().await.unwrap()
     }
 
     let listener = tokio::net::TcpListener::bind(&config.address)
@@ -164,8 +167,8 @@ async fn main() {
 
     if config.scrape_on_startup {
         info!("Initial Scraping of {} targets", config.targets.len());
-        for target in &config.targets {
-            info!(name=target.name, "Scraping");
+        for target in config.targets.iter() {
+            info!(name = target.name, "Scraping");
             let before = METRICS.lock().await.gauges.len();
             try_scrape_target(target).await.unwrap();
             let total = METRICS.lock().await.gauges.len() - before;
@@ -173,22 +176,24 @@ async fn main() {
         }
     }
 
-    for target in config.targets {
+    for (index, target) in config.targets.iter().enumerate() {
+        let targets = config.targets.clone();
         let job = Job::new_async(target.cron.clone(), move |uuid, mut l| {
+            let targets_clone = targets.clone();
             Box::pin({
-                let target_clone = target.clone();
                 async move {
-                    if let Err(e) = try_scrape_target(&target_clone).await {
-                        error!("{}: {:#?}", &target_clone.name, e);
+                    let target = targets_clone.get(index).unwrap();
+                    if let Err(e) = try_scrape_target(target).await {
+                        error!("{}: {:#?}", &target.name, e);
                     }
                     if let Some(n) = l.next_tick_for_job(uuid).await.ok().flatten() {
-                        debug!("{}: next run {}", &target_clone.name, n)
+                        debug!("{}: next run {}", &target.name, n)
                     }
                 }
             })
         })
-            .with_context(|| "creating job for target")
-            .unwrap();
+        .with_context(|| "creating job for target")
+        .unwrap();
         scheduler
             .add(job)
             .await
@@ -201,7 +206,13 @@ async fn main() {
         .with_context(|| "starting scheduler")
         .unwrap();
 
-    let app = axum::Router::new().route("/metrics", axum::routing::get(serve_metrics));
+    let app = axum::Router::new().route(
+        "/metrics",
+        axum::routing::get({
+            let targets = config.targets.clone();
+            move || serve_metrics(targets)
+        }),
+    );
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c()
@@ -212,28 +223,32 @@ async fn main() {
         .unwrap()
 }
 
-async fn serve_metrics() -> impl axum::response::IntoResponse {
-    let mut parts: Vec<String> = METRICS
-        .lock()
-        .await
-        .gauges
-        .iter()
-        .map(
-            |Metric {
-                 name,
-                 value,
-                 timestamp,
-                 labels,
-             }| {
-                format!(
-                    "# TYPE gauge\n{name} {value} {}",
-                    timestamp.unwrap_or_default()
-                )
-            },
-        )
-        .collect();
-    parts.sort_unstable();
-    let body = parts.join("\n\n");
+async fn serve_metrics(targets: Arc<Vec<Target>>) -> impl axum::response::IntoResponse {
+    let mut lines = vec![];
+
+    for target in targets.iter() {
+        lines.push(format!(
+            "################### {} ###################\n",
+            target.name
+        ));
+        for rule in &target.rules {
+            let results: Vec<_> = rule
+                .results
+                .lock()
+                .await
+                .iter()
+                .map(|m| m.render())
+                .collect();
+            if !results.is_empty() {
+                lines.push(format!("# TYPE {} gauge", rule.name));
+                lines.extend_from_slice(&results);
+            }
+            lines.push(String::default());
+        }
+        lines.push(String::default());
+    }
+
+    let body = lines.join("\n");
     let headers = [(
         axum::http::header::CONTENT_TYPE,
         "text/plain; version=0.0.4",
@@ -255,7 +270,11 @@ async fn try_scrape_target(target: &Target) -> Result<()> {
         builder = builder.header(k, v)
     }
     let request = builder.build().with_context(|| "building request")?;
-    debug!(target=target.name, url=request.url().as_str(), "Fetching");
+    debug!(
+        target = target.name,
+        url = request.url().as_str(),
+        "Fetching"
+    );
     let response = CLIENT
         .execute(request)
         .await
@@ -271,20 +290,20 @@ async fn try_scrape_target(target: &Target) -> Result<()> {
 }
 
 impl Target {
-    fn setup(&mut self) -> Result<()> {
+    async fn setup(&self) -> Result<()> {
         info!("Setting up Extractors for Target \"{}\"", self.name);
-        for rule in &mut self.rules {
+        for rule in &self.rules {
             info!("=> {}", rule.name);
             match self.extractor {
                 Extractor::Jq => {
                     let filter = jq::JsonFilter::from_str(&rule.extract)
                         .map_err(|e| anyhow!("Failed to compile jq filter: {:#?}", e))?;
-                    rule.extractor_storage.jq_filter = Some(filter);
+                    rule.extractor_storage.lock().await.jq_filter = Some(filter);
                 }
                 Extractor::Regex => {
                     let regex =
                         Regex::new(&rule.extract).with_context(|| "Failed to compile regex")?;
-                    rule.extractor_storage.regex = Some(regex);
+                    rule.extractor_storage.lock().await.regex = Some(regex);
                 }
             }
         }
@@ -293,11 +312,12 @@ impl Target {
     async fn extract(&self, text: String) -> Result<()> {
         debug!(target = self.name, "Extracting from response");
         for rule in &self.rules {
+            let mut to_save = vec![];
             match self.extractor {
                 Extractor::Jq => {
                     debug!(target = self.name, rule = rule.name, "Processing with jq");
-                    let value = rule
-                        .extractor_storage
+                    let lock = rule.extractor_storage.lock().await;
+                    let value = lock
                         .jq_filter
                         .as_ref()
                         .unwrap()
@@ -317,7 +337,7 @@ impl Target {
                             if let Some(num) = value.as_f64() {
                                 Metric::new(&rule.name, num)
                                     .with_label("key", key)
-                                    .save()
+                                    .insert(&mut to_save)
                                     .await;
                             }
                         }
@@ -330,14 +350,14 @@ impl Target {
                         for obj in arr {
                             if let Some(value) = obj.get("value") {
                                 if let Some(num) = value.as_f64() {
-                                    Metric::new(&rule.name, num).save().await;
+                                    Metric::new(&rule.name, num).insert(&mut to_save).await;
                                 }
                             }
                         }
                     } else if let Some(num) = value.as_f64() {
                         debug!(target = self.name, rule = rule.name, "jq produced a number");
                         // for numbers, as_f64 is always Some
-                        Metric::new(&rule.name, num).save().await;
+                        Metric::new(&rule.name, num).insert(&mut to_save).await;
                     }
                 }
 
@@ -347,24 +367,26 @@ impl Target {
                         rule = rule.name,
                         "Processing with regex"
                     );
-                    let regex = rule.extractor_storage.regex.as_ref().unwrap();
+                    let lock = rule.extractor_storage.lock().await;
+                    let regex = lock.regex.as_ref().unwrap();
                     let names: Vec<_> = regex.capture_names().flatten().collect();
                     let captures = regex
                         .captures(&text)
                         .with_context(|| "Regex didn't match anything")?;
                     if names.contains(&"value") {
-                        let group = captures.name("value").with_context(|| "Named group 'value' exists, but didn't match anything?")?;
+                        let group = captures.name("value").with_context(
+                            || "Named group 'value' exists, but didn't match anything?",
+                        )?;
                         if let Ok(num) = group.as_str().parse::<f64>() {
                             let metric = Metric::new(&rule.name, num);
                             names
                                 .iter()
                                 .filter_map(|name| captures.name(name).map(|m| (name, m.as_str())))
                                 .fold(metric, |m, (name, matched)| m.with_label(*name, matched))
-                                .save()
+                                .insert(&mut to_save)
                                 .await;
                         }
-                    }
-                    else {
+                    } else {
                         // There are no (relevant) named groups, so use the first one. Failing that, use the entire match
                         let num = captures
                             .iter()
@@ -373,10 +395,15 @@ impl Target {
                             .unwrap()
                             .as_str()
                             .parse::<f64>()
-                            .with_context(|| "Regex matched, but the result could not be parsed as f64")?;
-                        Metric::new(&rule.name, num).save().await;
+                            .with_context(
+                                || "Regex matched, but the result could not be parsed as f64",
+                            )?;
+                        Metric::new(&rule.name, num).insert(&mut to_save).await;
                     }
                 }
+            }
+            if !to_save.is_empty() {
+                *rule.results.lock().await = to_save;
             }
         }
         Ok(())
@@ -399,45 +426,66 @@ impl Metric {
             name: name.into(),
             value: value.into(),
             timestamp,
-            labels: Default::default(),
+            ..Default::default()
         }
     }
 
     fn with_label<K, V>(mut self, key: K, value: V) -> Self
     where
-        K: Into<String>,
-        V: Into<String>,
+        K: AsRef<str>,
+        V: AsRef<str>,
     {
-        // TODO: escaping etc
-        self.labels.insert(key.into(), value.into());
+        self.labels.insert(
+            sanitize_for_prometheus(key.as_ref()),
+            sanitize_for_prometheus(value.as_ref()),
+        );
         self
     }
 
-    async fn save(self) {
+    async fn insert(mut self, vec: &mut Vec<Metric>) {
         debug!(
             name = self.name,
             value = self.value,
             labels = self.labels.len(),
             "Saving new metric"
         );
-        METRICS.lock().await.gauges.replace(self);
+        self.rendered = Some(self.render());
+        vec.push(self);
     }
-}
 
-impl Hash for Metric {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.name.as_bytes());
-        for (k, v) in &self.labels {
-            state.write(k.as_bytes());
-            state.write(v.as_bytes());
+    fn render(&self) -> String {
+        if let Some(rendered) = &self.rendered {
+            return rendered.clone();
         }
+
+        let name = &self.name;
+        let value = self.value;
+
+        let labels = self
+            .labels
+            .iter()
+            .map(|(k, v)| format!("{k}=\"{v}\""))
+            .reduce(|a, b| format!("{a},{b}"))
+            .map(|l| format!("{{{l}}}"))
+            .unwrap_or_default();
+
+        let timestamp = match self.timestamp {
+            None => "",
+            Some(t) => &t.to_string(),
+        };
+
+        format!("{name}{labels} {value} {timestamp}")
     }
 }
 
-impl PartialEq for Metric {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.labels == other.labels
-    }
+fn sanitize_for_prometheus(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
-
-impl Eq for Metric {}
