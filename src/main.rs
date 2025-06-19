@@ -401,6 +401,7 @@ impl Target {
                             let metric = Metric::new(&rule.name, num);
                             names
                                 .iter()
+                                .filter(|n| **n != "value")
                                 .filter_map(|name| captures.name(name).map(|m| (name, m.as_str())))
                                 .fold(metric, |m, (name, matched)| m.with_label(*name, matched))
                                 .insert(&mut to_save)
