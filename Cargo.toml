@@ -27,3 +27,6 @@ tracing-subscriber = "0.3"
 [features]
 default = []
 generate-schema = ["dep:schemars"] # Use to generate a json schema
+
+[profile.release]
+lto = true
