@@ -6,23 +6,13 @@ Turn HTTP resources into Prometheus metrics.
 > Excessive amounts of requests can lead to your being banned,
 > and is generally regarded as a dick move. **Use it responsibly.**
 
-<!-- TOC -->
-* [prometheus-http-exporter](#prometheus-http-exporter)
-  * [Concepts](#concepts)
-  * [Quickstart](#quickstart)
-  * [Configuration](#configuration)
-      * [cron](#cron)
-      * [Extractor](#extractor)
-      * [Headers](#headers)
-  * [Extractors](#extractors)
-    * [jq](#jq)
-      * [Extracing single values](#extracing-single-values)
-      * [Extracting multiple values](#extracting-multiple-values)
-    * [Regex](#regex)
-      * [Example](#example)
-      * [Rules](#rules)
-  * [Prometheus Configuration](#prometheus-configuration)
-<!-- TOC -->
+* [Concepts](#concepts)
+* [Quickstart](#quickstart)
+* [Configuration](#configuration)
+* [Extractors](#extractors)
+  * [jq](#jq)
+  * [Regex](#regex)
+* [Prometheus Configuration](#prometheus-configuration)
 
 ## Concepts
 
