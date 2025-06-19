@@ -6,7 +6,7 @@ use reqwest::Client;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::cmp::min;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::fs::File;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
@@ -17,11 +17,6 @@ use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
-
-#[derive(Default)]
-struct Metrics {
-    gauges: HashSet<Metric>,
-}
 
 #[derive(Default, Clone, Debug)]
 struct Metric {
