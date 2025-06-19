@@ -356,9 +356,21 @@ impl Target {
                             "jq produced an array, treating it as multiple metrics"
                         );
                         for obj in arr {
-                            if let Some(value) = obj.get("value") {
-                                if let Some(num) = value.as_f64() {
-                                    Metric::new(&rule.name, num).insert(&mut to_save).await;
+                            if let Some(obj) = obj.as_object() {
+                                if let Some(value) = obj.get("value") {
+                                    if let Some(num) = value.as_f64() {
+                                        let metric = Metric::new(&rule.name, num);
+                                        obj.iter()
+                                            .filter(|(_, v)| {
+                                                v.is_number() || v.is_string() || v.is_boolean()
+                                            })
+                                            .map(|(k, v)| (k, v.to_string()))
+                                            .fold(metric, |m, (k, v)| {
+                                                m.with_label(k, v.trim_matches('"'))
+                                            })
+                                            .insert(&mut to_save)
+                                            .await;
+                                    }
                                 }
                             }
                         }
