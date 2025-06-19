@@ -13,7 +13,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{debug, error, info, Level};
+use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
@@ -166,6 +166,9 @@ async fn main() {
 
     if config.scrape_on_startup {
         info!("Initial Scraping of {} targets", config.targets.len());
+        warn!(
+            "Initial Scraping is supposed to be used for testing purposes. Any error will result in a shutdown."
+        );
         for target in config.targets.iter() {
             info!(name = target.name, "Scraping");
             try_scrape_target(target).await.unwrap();
