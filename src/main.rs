@@ -257,15 +257,20 @@ async fn serve_metrics(targets: Arc<Vec<Target>>) -> impl axum::response::IntoRe
 }
 
 async fn try_scrape_target(target: &Target) -> Result<()> {
-    let mut builder = CLIENT.get(&target.url).header(
-        "User-Agent",
-        format!(
-            "{}/{} ({})",
-            env!("CARGO_CRATE_NAME"),
-            env!("CARGO_PKG_VERSION"),
-            env!("CARGO_PKG_REPOSITORY")
-        ),
-    );
+    let mut builder = CLIENT.get(&target.url);
+
+    if !target.headers.contains_key("User-Agent") {
+        builder = builder.header(
+            "User-Agent",
+            format!(
+                "{}/{} ({})",
+                env!("CARGO_CRATE_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_PKG_REPOSITORY")
+            ),
+        );
+    }
+
     for (k, v) in &target.headers {
         builder = builder.header(k, v)
     }
