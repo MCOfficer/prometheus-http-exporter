@@ -407,17 +407,18 @@ impl Target {
                                 .await;
                         }
                     } else {
-                        // There are no (relevant) named groups, so use the first one. Failing that, use the entire match
-                        let num = captures
+                        // There are no (relevant) named groups - concat the remaining groups.
+                        // If there are no groups use the entire match (group 0).
+                        let captures: Vec<_> = captures
                             .iter()
                             .flatten()
-                            .nth(min(1, captures.len() - 1))
-                            .unwrap()
-                            .as_str()
+                            .skip(min(1, captures.len() - 1))
+                            .map(|m| m.as_str())
+                            .collect();
+                        let string = captures.join("");
+                        let num = string
                             .parse::<f64>()
-                            .with_context(
-                                || "Regex matched, but the result could not be parsed as f64",
-                            )?;
+                            .with_context(|| format!("Regex matched, but the result could not be parsed as f64: '{string}'"))?;
                         Metric::new(&rule.name, num).insert(&mut to_save).await;
                     }
                 }
