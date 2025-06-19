@@ -149,12 +149,6 @@ async fn main() {
         )
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-
-    let scheduler = JobScheduler::new()
-        .await
-        .with_context(|| "creating job scheduler")
-        .unwrap();
-
     for target in config.targets.iter() {
         target.setup().await.unwrap()
     }
@@ -181,7 +175,12 @@ async fn main() {
         }
     }
 
+    let scheduler = JobScheduler::new()
+        .await
+        .with_context(|| "creating job scheduler")
+        .unwrap();
     for (index, target) in config.targets.iter().enumerate() {
+        info!(target = target.name, cron = target.cron, "Creating job");
         let targets = config.targets.clone();
         let job = Job::new_async(target.cron.clone(), move |uuid, mut l| {
             let targets_clone = targets.clone();
@@ -197,7 +196,6 @@ async fn main() {
                 }
             })
         })
-        .with_context(|| "creating job for target")
         .unwrap();
         scheduler
             .add(job)
