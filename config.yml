@@ -77,9 +77,10 @@ targets:
     cron: every 60 minutes
     extractor: regex
     rules:
-      - name: urlteam_status_urls
-        extract: '(?<value>\d+)</strong>\s+URLs scanned.*?(?<saved>\d+)</strong>\s+saved' # TODO no value
-        metric_type: gauge
+      - name: urlteam_status_urls_scanned
+        extract: '(?<value>\d+)</strong>\s+URLs scanned.*?' # TODO no value
+      - name: urlteam_status_urls_saved
+        extract: '(?<value>\d+)</strong>\s+saved' # TODO no value
 
   - name: Steam Statistics
     # original url: https://store.steampowered.com/about/
@@ -89,7 +90,5 @@ targets:
     rules:
       - name: steam_players_online
         extract: 'gamers_online.*\s*(\d+),?(\d+),?(\d+)'
-        metric_type: gauge
       - name: steam_players_in_game
         extract: 'gamers_in_game.*\s*(\d+),?(\d+),?(\d+)'
-        metric_type: gauge
