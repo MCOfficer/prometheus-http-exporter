@@ -12,11 +12,25 @@ targets:
     url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/crates-io-summary.json
     cron: every 15 minutes
     extractor: jq # default, may be omitted
+    headers:
+      User-Agent: "prometheus_http_exporter/0.1.0 (Hosted by MCO <m******@****.de>)"
     rules:
       - name: crates_io_downloads
         extract: ".num_downloads"
       - name: crates_io_crates
         extract: ".num_crates"
+
+  - name: prometheus repository stats
+    # original url: https://api.github.com/repos/prometheus/prometheus
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/github-prometheus-stats.json
+    cron: "* 0 * * * *"
+    rules:
+      - name: prometheus_repo_watchers
+        extract: .watchers
+      - name: prometheus_repo_stars
+        extract: .stargazers_count
+      - name: prometheus_repo_forks
+        extract: .forks
 
   - name: ISRO spacecraft count
     # original url: https://isro.vercel.app/api/spacecrafts
@@ -29,7 +43,7 @@ targets:
   - name: Open Notify astronauts
     # original url: http://api.open-notify.org/astros.json
     url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/open-notify-astros.json
-    cron: every day
+    cron: "@daily"
     rules:
       - name: open_notify_people_in_space
         extract: .number
@@ -64,5 +78,18 @@ targets:
     extractor: regex
     rules:
       - name: urlteam_status_urls
-        extract: '(?<scanned>\d+)</strong>\s+URLs scanned.*?(?<saved>\d+)</strong>\s+saved'
+        extract: '(?<value>\d+)</strong>\s+URLs scanned.*?(?<saved>\d+)</strong>\s+saved' # TODO no value
+        metric_type: gauge
+
+  - name: Steam Statistics
+    # original url: https://store.steampowered.com/about/
+    url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/steampowered-about.html
+    cron: every 60 minutes
+    extractor: regex
+    rules:
+      - name: steam_players_online
+        extract: 'gamers_online.*\s*(\d+),?(\d+),?(\d+)'
+        metric_type: gauge
+      - name: steam_players_in_game
+        extract: 'gamers_in_game.*\s*(\d+),?(\d+),?(\d+)'
         metric_type: gauge
