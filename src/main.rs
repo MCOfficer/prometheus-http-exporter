@@ -16,7 +16,6 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{debug, error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-static METRICS: LazyLock<Mutex<Metrics>> = LazyLock::new(|| Mutex::new(Metrics::default()));
 static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
 #[derive(Default)]
@@ -169,10 +168,13 @@ async fn main() {
         info!("Initial Scraping of {} targets", config.targets.len());
         for target in config.targets.iter() {
             info!(name = target.name, "Scraping");
-            let before = METRICS.lock().await.gauges.len();
             try_scrape_target(target).await.unwrap();
-            let total = METRICS.lock().await.gauges.len() - before;
-            info!("=> scraped {total} metrics")
+            for rule in &target.rules {
+                let results = rule.results.lock().await;
+                for metric in results.iter() {
+                    info!("=> {}", metric.render())
+                }
+            }
         }
     }
 
