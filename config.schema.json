@@ -74,7 +74,7 @@
           "default": {}
         },
         "name": {
-          "description": "The target's name. Must be unique.",
+          "description": "The target's name. Must be unique, must not contain newlines.",
           "type": "string"
         },
         "rules": {

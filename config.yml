@@ -10,7 +10,7 @@ targets:
   - name: crates.io summary
     # original url: https://crates.io/api/v1/summary
     url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/crates-io-summary.json
-    cron: every day
+    cron: every 15 minutes
     extractor: jq # default, may be omitted
     rules:
       - name: crates_io_downloads
@@ -18,12 +18,12 @@ targets:
       - name: crates_io_crates
         extract: ".num_crates"
 
-  - name: ISRO spacecraft sount
+  - name: ISRO spacecraft count
     # original url: https://isro.vercel.app/api/spacecrafts
     url: https://gist.githubusercontent.com/MCOfficer/cfeb0111e652c1a332c861dcae68c024/raw/isro-spacecrafts.json
     cron: every day
     rules:
-      - name: isro_spacecraft_count
+      - name: isro_spacecraft
         extract: ".spacecrafts | length"
 
   - name: Open Notify astronauts
