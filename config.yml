@@ -78,9 +78,9 @@ targets:
     extractor: regex
     rules:
       - name: urlteam_status_urls_scanned
-        extract: '(?<value>\d+)</strong>\s+URLs scanned.*?' # TODO no value
+        extract: '(?<value>\d+)</strong>\s+URLs scanned.*?'
       - name: urlteam_status_urls_saved
-        extract: '(?<value>\d+)</strong>\s+saved' # TODO no value
+        extract: '(?<value>\d+)</strong>\s+saved'
 
   - name: Steam Statistics
     # original url: https://store.steampowered.com/about/
