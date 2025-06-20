@@ -13,8 +13,8 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release
 
-FROM debian:bookworm-slim AS runtime
+FROM gcr.io/distroless/cc:latest AS runtime
 WORKDIR /app
-COPY --from=builder /app/target/release/prometheus-http-exporter /usr/local/bin
-ENTRYPOINT ["/usr/local/bin/prometheus-http-exporter"]
+COPY --from=builder /app/target/release/prometheus-http-exporter /app/
+ENTRYPOINT ["/app/prometheus-http-exporter"]
 CMD ["/config.yml"]
