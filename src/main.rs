@@ -6,7 +6,7 @@ use reqwest::Client;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::cmp::min;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::fs::File;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
@@ -126,11 +126,17 @@ async fn main() {
         return;
     }
 
-    let config_path = std::env::args()
+    let first_arg = std::env::args()
         .nth(1)
         .ok_or_else(|| anyhow!("Usage: prometheus-http-exporter <path to config.yml>",))
         .unwrap();
-    let config_file = File::open(config_path)
+
+    if first_arg == "-v" || first_arg == "--version" {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
+    let config_file = File::open(first_arg)
         .context("Failed to open config file")
         .unwrap();
     let config: Config = serde_yml::from_reader(config_file)
