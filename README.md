@@ -10,8 +10,8 @@ Turn HTTP resources into Prometheus metrics.
 * [Quickstart](#quickstart)
 * [Configuration](#configuration)
 * [Extractors](#extractors)
-  * [jq](#jq)
-  * [Regex](#regex)
+    * [jq](#jq)
+    * [Regex](#regex)
 * [Prometheus Configuration](#prometheus-configuration)
 
 ## Concepts
@@ -52,10 +52,10 @@ targets:
 Now run the exporter:
 
 ````bash
-$ prometheus_http_exporter config.yml
+$ docker run -v "${PWD}/config.yml:/config.yml" -it ghcr.io/mcofficer/prometheus-http-exporter:latest
 ````
 
-And check [0.0.0.0:3000/metrics](http://0.0.0.0:3000/metrics):
+...and check [0.0.0.0:3000/metrics](http://0.0.0.0:3000/metrics):
 
 ```bash
 $ curl http://0.0.0.0:3000/metrics
@@ -151,7 +151,7 @@ The GitHub API returns a response like this:
 ```
 
 ... from which the query `.stargazers_count` extracts the value: `59046`.
-[![Try it on the JQ Playground](https://img.shields.io/badge/try_it-jqplay-blue)](https://play.jqlang.org/s/pYWD00NiK8bDNz4)
+<sup>[(jq Playground)](https://play.jqlang.org/s/pYWD00NiK8bDNz4)</sup>
 
 If the value is a number, a metric is emitted using the rule's name, the value and the timestamp of the extraction:
 
@@ -177,7 +177,7 @@ Consider the following JSON response:
 
 Suppose we are interested in both `shaved` and `total`.
 We can use the query `.yaks` to return only the object containing both.
-[![Try it on the JQ Playground](https://img.shields.io/badge/try_it-jqplay-blue)](https://play.jqlang.org/s/0afwh6UpcWsjRB-)
+<sup>[(jq Playground)](https://play.jqlang.org/s/0afwh6UpcWsjRB-)</sup>
 
 The extractor will emit a metric for each key-value pair in the object (if the value is a number), with the key being
 preserved as a label:
@@ -221,22 +221,22 @@ yaks{shaved="false"} 2 1750340568904
 
 ### Regex
 
-[Regular expressions](https://en.wikipedia.org/wiki/Regular_expression) are have become a programming mainstay, in part
-due to their flexibility to find things in virtually any human-readable input. However, they can be all but inscrutable
-to beginners. If you're struggling, try using a regex debugger such
-as [regex101](https://regex101.com/?flavor=rust&flags=) and
+[Regular expressions](https://en.wikipedia.org/wiki/Regular_expression) have become a programming mainstay,
+in part due to their flexibility to find things in virtually any human-readable input.
+However, they can be all but inscrutable to beginners.
+If you're struggling, try using a regex debugger such as [regex101](https://regex101.com/?flavor=rust&flags=) and
 maybe have a look at the Learning section of [awesome-regex](https://github.com/aloisdg/awesome-regex#learning).
 
-This project uses the [regex](https://github.com/rust-lang/regex) crate, which omits some of the more compute-intensive
-regex features (most notably, look-arounds). The "Rust"-flavor on regex101 uses the same
-crate. [By default](https://docs.rs/regex/latest/regex/struct.RegexBuilder.html), the crate disables all regex flags
-except Unicode support.
+This project uses the [regex](https://github.com/rust-lang/regex) crate,
+which omits some of the more compute-intensive regex features (most notably, look-arounds).
+The "Rust" flavor on regex101 uses the same crate.
+[By default](https://docs.rs/regex/latest/regex/struct.RegexBuilder.html), all Regex flags except Unicode support are disabled.
 
 > [!NOTE]  
-> Regex is far from a perfect format, and scraping content meant for humans is generally frowned upon by website
-> operators.
-> As such, the Regexes in this project are intended as a fallback feature - if at all possible, you should prefer
-> a extractor that parses structured data.
+> Regex is far from a perfect format,
+> and scraping content meant for humans is generally frowned upon by website operators.
+> Regex support in this project is intended as a fallback feature -
+> if at all possible, you should prefer an extractor that parses structured data.
 
 #### Example
 
@@ -249,7 +249,7 @@ contains this snippet:
 ```
 
 A naive regex might look something like this:
-[![Try it on regex101](https://img.shields.io/badge/try_it-regex101-blue)](https://regex101.com/r/z2XWsH/1)
+<sup>[(regex101)](https://regex101.com/r/z2XWsH/1)</sup>
 
 ```regexp
 gamers_online.*?\s*?([\d,]+)
@@ -263,13 +263,13 @@ called `Result::unwrap()` on an `Err` value: Regex matched, but the result could
 
 Oh.
 
-This is unfortunately a common problem with matching numbers made for humans - there are commas that the `f64`-parser can't
-make sense of. It's not the parser's fault; formatting rules vary depending on locale, and making a "best guess" is both
-difficult and unreliable.
+This is unfortunately a common problem with matching numbers made for humans - there are commas that the `f64`-parser
+can't make sense of. It's not the parser's fault; formatting rules vary depending on locale, and making a "best guess"
+is both difficult and unreliable.
 
 Fortunately, there is a solution. If our regex has multiple matching capture groups, they will first be concatenated,
 then parsed as number. (This does not apply to non-capturing groups). So let's adjust our regex:
-[![Try it on regex101](https://img.shields.io/badge/try_it-regex101-blue)](https://regex101.com/r/vFafER/1)
+<sup>[(regex101)](https://regex101.com/r/vFafER/1)</sup>
 
 ```regexp
 gamers_online.*\s*(\d+),?(\d+),?(\d+)
