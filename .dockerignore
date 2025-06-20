@@ -1,0 +1,6 @@
+/target/
+config.yml
+config.schema.json
+*.md
+LICENSE
+/.*
