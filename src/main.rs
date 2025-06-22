@@ -1,5 +1,5 @@
 use anyhow::Result;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use regex::Regex;
 use reqwest::Client;
 #[cfg(feature = "generate-schema")]
@@ -13,7 +13,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{Level, debug, error, info, warn};
 use tracing_subscriber::FmtSubscriber;
 
 static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
