@@ -1,6 +1,6 @@
 [package]
 name = "prometheus-http-exporter"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Configurable exporter for HTTP-based prometheus metrics"
 repository = "https://github.com/MCOfficer/prometheus-http-exporter"
