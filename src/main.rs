@@ -139,7 +139,7 @@ async fn main() {
     let config_file = File::open(first_arg)
         .context("Failed to open config file")
         .unwrap();
-    let config: Config = serde_yml::from_reader(config_file)
+    let config: Config = serde_norway::from_reader(config_file)
         .context("Failed to Deserialize config")
         .unwrap();
 
