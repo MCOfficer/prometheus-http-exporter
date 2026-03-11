@@ -14,13 +14,13 @@ anyhow = "1.0"
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 regex = "1"
 jq = "0.1.0"
-reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls", "charset", "gzip"] }
+reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls", "charset", "gzip"] }
 schemars = { version = "1.1.0", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_norway = "0.9"
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
-tokio-cron-scheduler = { version = "0.14", features = ["english", "signal"] }
+tokio-cron-scheduler = { version = "0.15", features = ["english", "signal"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = "0.3"
 
